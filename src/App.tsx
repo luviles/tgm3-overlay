@@ -11,7 +11,8 @@
  * torikan deaths, roll clears) can be reviewed without playing.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useGameMonitor } from "./hooks/useGameMonitor";
 import { useViewMode } from "./hooks/useViewMode";
 import { useGradeUpSound } from "./hooks/useGradeUpSound";
@@ -62,6 +63,19 @@ export default function App() {
   );
 
   const unlockShowcase = useCallback(() => setShowcaseUnlocked(true), []);
+
+  // capture/demo support: TGM3_SHOWCASE=<scenario id> auto-starts the
+  // scenario player in that scenario (used by the README GIF capture
+  // script); a normal launch returns null and nothing happens
+  useEffect(() => {
+    invoke<string | null>("showcase_override")
+      .then((id) => {
+        if (!id) return;
+        const idx = SCENARIOS.findIndex((s) => s.id === id);
+        if (idx >= 0) setShowcaseIdx(idx);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const switchScenario = useCallback((delta: number) => {
     setShowcaseIdx((i) => (i === null ? 0 : (i + delta + SCENARIOS.length) % SCENARIOS.length));
