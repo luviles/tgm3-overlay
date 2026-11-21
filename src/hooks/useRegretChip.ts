@@ -10,36 +10,51 @@
  */
 
 import { useRef } from "react";
-import type { DeadlineChip } from "../components/cards";
+import type { CheckpointChip } from "../components/cards";
 import type { ProcessedGameState } from "../core/types";
 import { signedTime } from "../core/calculators";
+import { lastCompletedSection } from "../core/sections";
 
 export interface RegretChipConfig {
   /** regret threshold (frames) for a section index */
   thresholdFor: (section: number) => number;
 }
 
-interface Burst {
-  until: number;
-  chip: DeadlineChip;
+/**
+ * The death section's final REGRET verdict (Master's 500 torikan and
+ * Shirase's 500/1000 early terminations): the same window-remainder value
+ * (limit − lap) and tone its 3s lap burst showed, held for the rest of the
+ * run. Null while the run is alive or when the death lap was never
+ * recorded — what to show then is mode policy.
+ */
+export function deathRegretChip(
+  state: ProcessedGameState,
+  deathSection: number,
+  thresholdFor: (section: number) => number
+): CheckpointChip | null {
+  const lap = state.sectionTimes[deathSection];
+  if (!(lap > 0)) return null;
+  const windowRemaining = thresholdFor(deathSection) - lap;
+  return {
+    label: "REGRET",
+    value: signedTime(windowRemaining),
+    tone: state.regrets[deathSection] ? "red" : "cyan",
+  };
 }
 
-export function useRegretChip(state: ProcessedGameState, config: RegretChipConfig): DeadlineChip {
+interface Burst {
+  until: number;
+  chip: CheckpointChip;
+}
+
+export function useRegretChip(state: ProcessedGameState, config: RegretChipConfig): CheckpointChip {
   const burst = useRef<Burst | null>(null);
 
-  // the most recent COMPLETED section — the highest recorded lap. Section
-  // COMPLETION is the burst trigger: normal crossings advance the section
-  // index, but Master's final section (900-999) completes IN place at
-  // level 999 — that only shows up as sectionTimes[9] rising from 0. (The
-  // old index-edge check missed it, and clamping the index the other way
-  // swallowed Shirase's 1300 crossing — this form catches both.)
-  let lastCompleted = -1;
-  for (let i = state.sectionTimes.length - 1; i >= 0; i--) {
-    if (state.sectionTimes[i] > 0) {
-      lastCompleted = i;
-      break;
-    }
-  }
+  // Section COMPLETION (not the section index) is the burst trigger:
+  // normal crossings advance the index, but Master's final section
+  // (900-999) completes IN place at level 999 — that only shows up as
+  // sectionTimes[9] rising from 0.
+  const lastCompleted = lastCompletedSection(state);
 
   // init from the current state: mounting mid-run must not fabricate a lap
   // burst for sections whose completion was never observed

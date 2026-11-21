@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { PlayerInfoCard } from "../components/PlayerInfoCard";
 import {
   BandRow,
-  DeadlineChip,
+  CheckpointChip,
   HeroNumerals,
   KpiRow,
   ModeHeader,
@@ -15,9 +15,9 @@ import {
   StatCell,
   ViewBottom,
 } from "../components/cards";
-import { buildShiraseSections } from "../core/sections";
-import { useRegretChip } from "../hooks/useRegretChip";
-import { useIncrementFlash } from "../hooks/useChangeFlash";
+import { buildShiraseSections, lastCompletedSection } from "../core/sections";
+import { deathRegretChip, useRegretChip } from "../hooks/useRegretChip";
+import { useIncrementFlash } from "../hooks/useIncrementFlash";
 import { formatTime, signedTime } from "../core/calculators";
 import type { ProcessedGameState } from "../core/types";
 import { getShiraseLimits, getShiraseRegretThresholdFrames } from "../core/sectionConstants";
@@ -53,12 +53,12 @@ function useCheckpointFailBlink(state: ProcessedGameState): boolean {
  */
 function useCheckpointCelebration(
   state: ProcessedGameState
-): { chip: DeadlineChip; until: number } | null {
+): { chip: CheckpointChip; until: number } | null {
   // init from the current state: mounting past a checkpoint must not
   // fabricate its celebration
   const prev500 = useRef(state.level >= 500);
   const prev1000 = useRef(state.level >= 1000);
-  const win = useRef<{ chip: DeadlineChip; until: number } | null>(null);
+  const win = useRef<{ chip: CheckpointChip; until: number } | null>(null);
 
   const crossed500 = state.level >= 500;
   const crossed1000 = state.level >= 1000;
@@ -68,7 +68,7 @@ function useCheckpointCelebration(
   } else {
     const { limit500, limit1000 } = getShiraseLimits(state.controlMode);
     // a checkpoint reached within its limit: 3s cyan margin lap
-    const crossingChip = (label: string, limit: number): DeadlineChip => ({
+    const crossingChip = (label: string, limit: number): CheckpointChip => ({
       label,
       value: signedTime(limit - state.timeFrames),
       tone: "cyan",
@@ -89,11 +89,6 @@ function useCheckpointCelebration(
 }
 
 /**
- * Live countdown to the next level checkpoint (500, then 1000).
- * States: white while under the limit, red once over; a confirmed FAIL
- * (early termination) flashes red for 3s, then rests in red.
- */
-/**
  * Past the level-1000 checkpoint there is no time attack left — the chip
  * slot carries the most recently completed section's lap instead: at the
  * 1000 crossing that is the lap which earned the pass, through the
@@ -102,14 +97,8 @@ function useCheckpointCelebration(
  * the section's verdict colour (cyan, red on a regret). Refs init from the
  * current state (mount-safe).
  */
-function useLastSectionChip(state: ProcessedGameState): DeadlineChip {
-  let latest = -1;
-  for (let i = 12; i >= 0; i--) {
-    if (state.sectionTimes[i] > 0) {
-      latest = i;
-      break;
-    }
-  }
+function useLastSectionChip(state: ProcessedGameState): CheckpointChip {
+  const latest = lastCompletedSection(state);
 
   const prevLatest = useRef(latest);
   const flashUntil = useRef(0);
@@ -129,12 +118,19 @@ function useLastSectionChip(state: ProcessedGameState): DeadlineChip {
   };
 }
 
-function checkpointCountdown(
+/**
+ * Live countdown to the next level checkpoint (500, then 1000).
+ * States: white while under the limit, red once over; a confirmed FAIL
+ * (early termination) flashes red for 3s, then rests in red. Past a
+ * in-time 1000 crossing the slot carries the LAST SECTION chip instead
+ * (no time attack remains after level 1000).
+ */
+function checkpointChip(
   state: ProcessedGameState,
   failBlink: boolean,
   /** the chip shown once past the 1000 checkpoint (no time attack left) */
-  past1000: DeadlineChip
-): DeadlineChip {
+  past1000: CheckpointChip
+): CheckpointChip {
   // target only advances past a checkpoint that was reached IN TIME
   const target = state.level >= 1000 || (state.level >= 500 && !state.level500TimeLimitExceeded)
     ? 1000
@@ -170,24 +166,20 @@ function shiraseSectionDisplay(state: ProcessedGameState): number {
 
 /**
  * On early termination (level-limit fail) the whole time column freezes:
- * the REGRET chip holds the death section's final verdict — the same
- * window-remainder value (limit − lap) and tone its 3s lap burst showed,
- * kept for the rest of the run instead of a countdown for a section never
- * played.
+ * the REGRET chip holds the death section's final verdict for the rest of
+ * the run instead of a countdown for a section never played.
  */
-function frozenRegretChip(state: ProcessedGameState): DeadlineChip | null {
+function torikanDeathRegret(state: ProcessedGameState): CheckpointChip | null {
   if (!state.level500TimeLimitExceeded && !state.level1000TimeLimitExceeded) return null;
 
   const deathSection = state.level1000TimeLimitExceeded ? 9 : 4;
-  const lap = state.sectionTimes[deathSection];
-  if (!(lap > 0)) return { label: "REGRET", value: "N/A", tone: "red" };
-
-  const windowRemaining = getShiraseRegretThresholdFrames(deathSection) - lap;
-  return {
-    label: "REGRET",
-    value: signedTime(windowRemaining),
-    tone: state.regrets[deathSection] ? "red" : "cyan",
-  };
+  return (
+    deathRegretChip(state, deathSection, getShiraseRegretThresholdFrames) ?? {
+      label: "REGRET",
+      value: "N/A",
+      tone: "red",
+    }
+  );
 }
 
 /**
@@ -243,9 +235,9 @@ export function ShiraseModeView({ state }: { state: ProcessedGameState }) {
           // the section lap burst outranks the torikan death freeze for its
           // 3s window — a regret at the death crossing still flashes, then
           // the frozen lap takes over
-          regret.flash ? regret : (frozenRegretChip(state) ?? regret)
+          regret.flash ? regret : (torikanDeathRegret(state) ?? regret)
         }
-        right={celebration?.chip ?? checkpointCountdown(state, failBlink, lastSection)}
+        right={celebration?.chip ?? checkpointChip(state, failBlink, lastSection)}
       />
 
       <ViewBottom

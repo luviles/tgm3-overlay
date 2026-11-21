@@ -10,16 +10,13 @@ import {
   copyCommonFields,
   computeSectionTimeDisplays,
   MAX_STAFF_ROLL_FRAMES,
-  recordSectionCrossing,
+  SectionTracker,
   sectionStartTime,
 } from "./base";
 import { createProcessedGameState, type GameState, type ProcessedGameState } from "../types";
 
 export class EasyModeProcessor {
-  private sectionCompletionTimes = new Array<number>(2).fill(0);
-  private sectionTimes = new Array<number>(2).fill(0);
-  private previousLevel = 0;
-  private previousSection = 0;
+  private readonly sections = new SectionTracker(2);
 
   // Session-tracked state
   private staffRollLatch = false;
@@ -37,27 +34,14 @@ export class EasyModeProcessor {
       return result;
     }
 
-    // 3. Section tracking (no regret verdicts in Easy)
-    const currentSection = Math.floor(currentState.level / 100);
-
-    if (this.previousSection < currentSection && this.previousLevel > 0) {
-      recordSectionCrossing(
-        this.sectionCompletionTimes,
-        this.sectionTimes,
-        null,
-        this.previousSection,
-        currentState.timeFrames,
-        null
-      );
-    }
-
-    result.sectionTimes = [...this.sectionTimes];
+    // 3. Section tracking (no regret verdicts in Easy — only the laps)
+    const currentSection = this.sections.cross(currentState.level, currentState.timeFrames, null);
+    result.sectionTimes = [...this.sections.sectionTimes];
 
     result.currentSectionTime =
-      currentState.timeFrames - sectionStartTime(this.sectionCompletionTimes, currentSection);
+      currentState.timeFrames - sectionStartTime(this.sections.sectionCompletionTimes, currentSection);
 
-    this.previousLevel = currentState.level;
-    this.previousSection = currentSection;
+    this.sections.advance(currentState.level, currentSection);
 
     result.speedLevel = currentState.level;
     result.maxLockFrame = EASY_MAX_LOCK_FRAME;
@@ -88,10 +72,7 @@ export class EasyModeProcessor {
   }
 
   reset(): void {
-    this.sectionCompletionTimes = new Array<number>(2).fill(0);
-    this.sectionTimes = new Array<number>(2).fill(0);
-    this.previousLevel = 0;
-    this.previousSection = 0;
+    this.sections.reset();
     this.staffRollLatch = false;
   }
 }

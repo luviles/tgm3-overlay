@@ -25,11 +25,13 @@ import {
   computeSectionTimeDisplays,
   MAX_STAFF_ROLL_FRAMES,
   recordSectionCrossing,
+  SectionTracker,
   sectionStartTime,
 } from "./base";
 import {
   createProcessedGameState,
   type GameState,
+  type GradeHistoryResult,
   type ProcessedGameState,
 } from "../types";
 
@@ -49,37 +51,31 @@ function applyExamStatus(result: ProcessedGameState): void {
 /**
  * Master career displays: grade name, the control-mode-selected grade
  * history (+ average) and demotion points. Identical on the reset path and
- * the live path.
+ * the live path; the history calculation arrives pre-computed (see the
+ * processor's cache).
  */
-function applyCareerDisplays(result: ProcessedGameState): void {
+function applyCareerDisplays(result: ProcessedGameState, historyCalc: GradeHistoryResult): void {
   result.gradeDisplay = toGradeName(result.combinedGrade);
-  const history =
-    result.controlMode === "WORLD"
-      ? result.worldMasterGradeHistory
-      : result.classicMasterGradeHistory;
+  result.gradeHistoryEntries = historyCalc.entries;
+  result.averageGradeDisplay = historyCalc.averageGrade;
+  result.averageGradeValue = historyCalc.averageGradeValue;
   result.selectedDemotionPoints =
     result.controlMode === "WORLD" ? result.worldDemotionPoints : result.classicDemotionPoints;
-  const calc = calculateGradeHistory(history);
-  result.gradeHistoryEntries = calc.entries;
-  result.averageGradeDisplay = calc.averageGrade;
-  result.averageGradeValue = calc.averageGradeValue;
   result.demotionProgressDisplay = `${result.selectedDemotionPoints}/30`;
 }
 
 export class MasterModeProcessor {
-  private sectionCompletionTimes = new Array<number>(10).fill(0);
-  private sectionTimes = new Array<number>(10).fill(0);
-  private seventyPercentTimes = new Array<number>(10).fill(0);
-  private cools = new Array<boolean>(10).fill(false);
-  private regrets = new Array<boolean>(10).fill(false);
-  private previousCoolTime = INT_MAX;
-  private previousLevel = 0;
-  private previousSection = 0;
+  private readonly sections = new SectionTracker(10);
+  private readonly seventyPercentTimes = new Array<number>(10).fill(0);
+  private readonly cools = new Array<boolean>(10).fill(false);
+
+  // the most recent section's 70%-checkpoint time (the COOL grace base)
+  private lastSeventyPercentTime = INT_MAX;
   private previousCheckpointCount = 0;
 
   // COOL deadline is FIXED once per section (computed on the section's first
   // tick): the grace base is the PREVIOUS section's 70% time, captured before
-  // this section's own x70 crossing updates previousCoolTime.
+  // this section's own x70 crossing updates lastSeventyPercentTime.
   private sectionCoolLimit = 0;
   private sectionCoolLimitSection = -1;
 
@@ -88,6 +84,12 @@ export class MasterModeProcessor {
   private maxStaffRollGradeThisSession = 0;
   private staffRollClearApplied = false;
   private staffRollLatch = false;
+
+  // Career-history cache: the history bytes change between games, not per
+  // tick — calculateGradeHistory (two sorts, ~12 allocations) runs once per
+  // change instead of at the 125 Hz tick rate
+  private careerKey = "";
+  private careerCalc: GradeHistoryResult | null = null;
 
   process(currentState: GameState): ProcessedGameState {
     const result = createProcessedGameState();
@@ -120,34 +122,26 @@ export class MasterModeProcessor {
       applyExamStatus(result);
 
       // Grade history (available from memory even on reset)
-      applyCareerDisplays(result);
+      applyCareerDisplays(result, this.careerHistory(result));
 
       this.reset();
       return result;
     }
 
     // 3. Section tracking
-    const currentSection = Math.floor(currentState.level / 100);
-
-    // Detect section boundary crossed
-    if (this.previousSection < currentSection && this.previousLevel > 0) {
-      recordSectionCrossing(
-        this.sectionCompletionTimes,
-        this.sectionTimes,
-        this.regrets,
-        this.previousSection,
-        currentState.timeFrames,
-        isRegret
-      );
-    }
+    const currentSection = this.sections.cross(
+      currentState.level,
+      currentState.timeFrames,
+      isRegret
+    );
 
     // Detect final section completion (level 999 in Master mode): section 9
     // never gets crossed out of, so it is recorded explicitly
-    if (currentState.level === 999 && this.previousLevel < 999) {
+    if (currentState.level === 999 && this.sections.previousLevel < 999) {
       recordSectionCrossing(
-        this.sectionCompletionTimes,
-        this.sectionTimes,
-        this.regrets,
+        this.sections.sectionCompletionTimes,
+        this.sections.sectionTimes,
+        this.sections.regrets,
         9,
         currentState.timeFrames,
         isRegret
@@ -156,7 +150,7 @@ export class MasterModeProcessor {
 
     // Grace base snapshot: on the section's FIRST tick this is the previous
     // section's 70% time (this section's x70 hasn't crossed yet)
-    const graceBaseCoolTime = this.previousCoolTime;
+    const graceBaseCoolTime = this.lastSeventyPercentTime;
 
     // Detect 70% checkpoint (memory-based, not available in last section)
     if (
@@ -164,24 +158,28 @@ export class MasterModeProcessor {
       this.previousCheckpointCount < currentState.seventyPercentCheckpointCount
     ) {
       const previousTotal =
-        currentSection > 0 ? this.sectionCompletionTimes[currentSection - 1] : 0;
+        currentSection > 0 ? this.sections.sectionCompletionTimes[currentSection - 1] : 0;
       const seventyPercentTime = currentState.timeFrames - previousTotal;
 
       this.seventyPercentTimes[currentSection] = seventyPercentTime;
-      this.previousCoolTime = seventyPercentTime;
+      this.lastSeventyPercentTime = seventyPercentTime;
       this.previousCheckpointCount = currentState.seventyPercentCheckpointCount;
     }
 
-    // Detect Section COOL from game memory
-    if (currentState.sectionCoolFlag === 1 && !this.cools[currentSection]) {
+    // Detect Section COOL from game memory (bounds-guarded against a torn
+    // level read extending the array past its 10 slots)
+    if (
+      currentSection < 10 &&
+      currentState.sectionCoolFlag === 1 &&
+      !this.cools[currentSection]
+    ) {
       this.cools[currentSection] = true;
     }
 
     // Copy accumulated states
-    result.sectionTimes = [...this.sectionTimes];
+    this.sections.snapshot(result);
     result.seventyPercentTimes = [...this.seventyPercentTimes];
     result.cools = [...this.cools];
-    result.regrets = [...this.regrets];
     let totalCools = 0;
     for (const cool of this.cools) if (cool) totalCools++;
     result.totalCools = totalCools;
@@ -191,7 +189,7 @@ export class MasterModeProcessor {
     result.maxLockFrame = getMaxLockFrame(MASTER_MAX_LOCK_FRAMES, result.speedLevel);
 
     // 4. Current section time + deadline
-    const prevSectionTotal = sectionStartTime(this.sectionCompletionTimes, currentSection);
+    const prevSectionTotal = sectionStartTime(this.sections.sectionCompletionTimes, currentSection);
     result.currentSectionTime = currentState.timeFrames - prevSectionTotal;
 
     if (currentSection < 10) {
@@ -200,7 +198,7 @@ export class MasterModeProcessor {
 
       if (currentSection < 9) {
         // compute the COOL limit ONCE per section (first tick): at that
-        // moment previousCoolTime is still the previous section's 70% time
+        // moment lastSeventyPercentTime is still the previous section's 70% time
         if (this.sectionCoolLimitSection !== currentSection) {
           const absoluteCoolLimit = getCoolThresholdFrames(currentSection);
           let effectiveCoolLimit: number;
@@ -224,8 +222,7 @@ export class MasterModeProcessor {
       }
     }
 
-    this.previousLevel = currentState.level;
-    this.previousSection = currentSection;
+    this.sections.advance(currentState.level, currentSection);
 
     // 5. Session tracking
     if (result.sectionGradePoints > this.maxSectionGradePoints) {
@@ -269,15 +266,13 @@ export class MasterModeProcessor {
     result.isSectionCoolQualified = this.maxSectionGradePoints >= 9; // Rainbow Brush
     result.isInternalGradeQualified = result.internalGrade >= 27; // Lime Brush (S7)
 
-    // 9. Exam status + status card
+    // 9. Exam status + status card (applyExamStatus already set the
+    // non-roll default title)
     applyExamStatus(result);
     this.staffRollLatch = applyStaffRollStatus(
       result,
       this.staffRollLatch,
-      result.isInvisible ? "INVISIBLE ROLL!!" : "FADING ROLL!",
-      () => {
-        // non-roll default title already set by applyExamStatus
-      }
+      result.isInvisible ? "INVISIBLE ROLL!!" : "FADING ROLL!"
     );
 
     // 10. Section time display formatting
@@ -316,20 +311,30 @@ export class MasterModeProcessor {
     // 11. Master display formatting
     result.internalGradeText = `${currentState.internalGrade} (Grade ${result.internalGradeDisplay})`;
     result.staffRollGradePointsDisplay = formatGradePoints(result.maxStaffRollGradePoints);
-    applyCareerDisplays(result);
+    applyCareerDisplays(result, this.careerHistory(result));
 
     return result;
   }
 
+  /** Memoized grade-history calculation, keyed on the raw history bytes. */
+  private careerHistory(result: ProcessedGameState): GradeHistoryResult {
+    const history =
+      result.controlMode === "WORLD"
+        ? result.worldMasterGradeHistory
+        : result.classicMasterGradeHistory;
+    const key = `${result.controlMode}|${history.join(",")}`;
+    if (!this.careerCalc || this.careerKey !== key) {
+      this.careerCalc = calculateGradeHistory(history);
+      this.careerKey = key;
+    }
+    return this.careerCalc;
+  }
+
   reset(): void {
-    this.sectionCompletionTimes = new Array<number>(10).fill(0);
-    this.sectionTimes = new Array<number>(10).fill(0);
-    this.seventyPercentTimes = new Array<number>(10).fill(0);
-    this.cools = new Array<boolean>(10).fill(false);
-    this.regrets = new Array<boolean>(10).fill(false);
-    this.previousCoolTime = INT_MAX;
-    this.previousLevel = 0;
-    this.previousSection = 0;
+    this.sections.reset();
+    this.seventyPercentTimes.fill(0);
+    this.cools.fill(false);
+    this.lastSeventyPercentTime = INT_MAX;
     this.previousCheckpointCount = 0;
     this.sectionCoolLimit = 0;
     this.sectionCoolLimitSection = -1;
@@ -338,5 +343,8 @@ export class MasterModeProcessor {
     this.maxStaffRollGradeThisSession = 0;
     this.staffRollClearApplied = false;
     this.staffRollLatch = false;
+
+    this.careerKey = "";
+    this.careerCalc = null;
   }
 }

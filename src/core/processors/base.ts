@@ -168,7 +168,8 @@ export function applyStaffRollStatus(
   result: ProcessedGameState,
   latch: boolean,
   rollTitle: string,
-  fallback: () => void
+  /** non-roll default title; omit when the title is already set */
+  fallback?: () => void
 ): boolean {
   const latched = latch || result.isStaffRollActive;
 
@@ -182,9 +183,79 @@ export function applyStaffRollStatus(
   } else {
     result.showStaffRollTime = false;
     result.statusCardSubtitle = "";
-    fallback();
+    fallback?.();
   }
 
   return latched;
+}
+
+/**
+ * Section-tracking state shared by the level-based processors (Master,
+ * Shirase, Easy): the completion/lap/regret arrays and the crossing cursor.
+ * Mode-specific edges (Master's in-place 999 completion, Shirase's torikan
+ * first-entry checks) read `previousLevel` BETWEEN cross() and advance(),
+ * so the cursor only moves when the processor says so.
+ */
+export class SectionTracker {
+  readonly sectionCompletionTimes: number[];
+  readonly sectionTimes: number[];
+  readonly regrets: boolean[];
+  previousLevel = 0;
+  previousSection = 0;
+
+  constructor(readonly count: number) {
+    this.sectionCompletionTimes = new Array<number>(count).fill(0);
+    this.sectionTimes = new Array<number>(count).fill(0);
+    this.regrets = new Array<boolean>(count).fill(false);
+  }
+
+  /** Section index for a level (0-12 for levels 0-1299). */
+  static sectionOf(level: number): number {
+    return Math.floor(level / 100);
+  }
+
+  /**
+   * Record the section boundary crossing if the level entered a new section
+   * since the last advance(). Does NOT move the cursor — mode logic between
+   * cross() and advance() still observes the previous level.
+   */
+  cross(
+    level: number,
+    timeFrames: number,
+    regretFn: ((sectionTimeFrames: number, section: number) => boolean) | null
+  ): number {
+    const currentSection = SectionTracker.sectionOf(level);
+    if (this.previousSection < currentSection && this.previousLevel > 0) {
+      recordSectionCrossing(
+        this.sectionCompletionTimes,
+        this.sectionTimes,
+        this.regrets,
+        this.previousSection,
+        timeFrames,
+        regretFn
+      );
+    }
+    return currentSection;
+  }
+
+  /** Move the cursor to the current level/section (end of tick). */
+  advance(level: number, currentSection: number): void {
+    this.previousLevel = level;
+    this.previousSection = currentSection;
+  }
+
+  /** Copy the accumulated lap/regret arrays onto a processed result. */
+  snapshot(result: ProcessedGameState): void {
+    result.sectionTimes = [...this.sectionTimes];
+    result.regrets = [...this.regrets];
+  }
+
+  reset(): void {
+    this.sectionCompletionTimes.fill(0);
+    this.sectionTimes.fill(0);
+    this.regrets.fill(false);
+    this.previousLevel = 0;
+    this.previousSection = 0;
+  }
 }
 

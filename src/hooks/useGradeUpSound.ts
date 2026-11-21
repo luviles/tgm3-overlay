@@ -41,8 +41,6 @@ export function useGradeUpSound(
   const previous = useRef<Partial<Record<GameType, number>>>({});
 
   useEffect(() => {
-    if (!enabled) return;
-
     if (timeFrames === 0) {
       previous.current[gameType] = -1;
       return;
@@ -52,7 +50,10 @@ export function useGradeUpSound(
     const rose = prev >= 0 && combinedGrade > prev;
     const capped = gameType === GameType.Master ? combinedGrade <= 32 : true;
 
-    if (rose && capped) {
+    // track the previous grade UNCONDITIONALLY (even while disabled): a
+    // rise observed during a disabled window must not fire a catch-up
+    // sound when the hook is re-enabled
+    if (enabled && rose && capped) {
       // Qualified_Master is mapped to Master by the caller before dispatch
       const isMaster = gameType === GameType.Master;
       const { volume, muted } = isMaster

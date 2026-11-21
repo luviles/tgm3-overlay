@@ -32,9 +32,13 @@ export const SHIRASE_WORLD_LEVEL1000_LIMIT = 366 * 60; // 21960 frames
 export const SHIRASE_CLASSIC_LEVEL500_LIMIT = 148 * 60; // 8880 frames
 export const SHIRASE_CLASSIC_LEVEL1000_LIMIT = 296 * 60; // 17760 frames
 
-/** The two torikan limits for the active control mode ("WORLD"/"CLASSIC"). */
+/** The two torikan limits for the active control mode ("WORLD"/"CLASSIC").
+ *  Memoized — the processor and the view both call this per tick. */
+const SHIRASE_LIMITS_CACHE: Record<string, { limit500: number; limit1000: number }> = {};
+
 export function getShiraseLimits(controlMode: string): { limit500: number; limit1000: number } {
-  return controlMode === "WORLD"
-    ? { limit500: SHIRASE_WORLD_LEVEL500_LIMIT, limit1000: SHIRASE_WORLD_LEVEL1000_LIMIT }
-    : { limit500: SHIRASE_CLASSIC_LEVEL500_LIMIT, limit1000: SHIRASE_CLASSIC_LEVEL1000_LIMIT };
+  return (SHIRASE_LIMITS_CACHE[controlMode] ??=
+    controlMode === "WORLD"
+      ? { limit500: SHIRASE_WORLD_LEVEL500_LIMIT, limit1000: SHIRASE_WORLD_LEVEL1000_LIMIT }
+      : { limit500: SHIRASE_CLASSIC_LEVEL500_LIMIT, limit1000: SHIRASE_CLASSIC_LEVEL1000_LIMIT });
 }

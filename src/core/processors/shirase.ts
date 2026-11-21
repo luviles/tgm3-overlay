@@ -12,7 +12,7 @@ import {
   copyCommonFields,
   computeSectionTimeDisplays,
   MAX_STAFF_ROLL_FRAMES,
-  recordSectionCrossing,
+  SectionTracker,
   sectionStartTime,
 } from "./base";
 import { createProcessedGameState, type GameState, type ProcessedGameState } from "../types";
@@ -24,11 +24,7 @@ import { createProcessedGameState, type GameState, type ProcessedGameState } fro
 const SHIRASE_GARBAGE_QUOTA_MAX = [20, 18, 10, 9, 8];
 
 export class ShiraseModeProcessor {
-  private sectionCompletionTimes = new Array<number>(13).fill(0); // 0-12 (1300 levels)
-  private sectionTimes = new Array<number>(13).fill(0);
-  private regrets = new Array<boolean>(13).fill(false);
-  private previousLevel = 0;
-  private previousSection = 0;
+  private readonly sections = new SectionTracker(13); // 0-12 (1300 levels)
 
   // Session-tracked state
   private staffRollLatch = false;
@@ -55,24 +51,15 @@ export class ShiraseModeProcessor {
     }
 
     // 3. Section tracking
-    const currentSection = Math.floor(currentState.level / 100);
+    const currentSection = this.sections.cross(
+      currentState.level,
+      currentState.timeFrames,
+      isShiraseRegret
+    );
+    this.sections.snapshot(result);
 
-    if (this.previousSection < currentSection && this.previousLevel > 0) {
-      recordSectionCrossing(
-        this.sectionCompletionTimes,
-        this.sectionTimes,
-        this.regrets,
-        this.previousSection,
-        currentState.timeFrames,
-        isShiraseRegret
-      );
-    }
-
-    result.sectionTimes = [...this.sectionTimes];
-    result.regrets = [...this.regrets];
-
-    // 4. Current section time + deadline + level time limit
-    const prevSectionTotal = sectionStartTime(this.sectionCompletionTimes, currentSection);
+    // 4. Current section time + deadline
+    const prevSectionTotal = sectionStartTime(this.sections.sectionCompletionTimes, currentSection);
     result.currentSectionTime = currentState.timeFrames - prevSectionTotal;
 
     if (currentSection < 13) {
@@ -80,13 +67,14 @@ export class ShiraseModeProcessor {
       result.regretDeadline = prevSectionTotal + regretThreshold;
     }
 
-    // Level time limit check (first entry into level 500/1000)
-    if (!this.level500Checked && currentState.level >= 500 && this.previousLevel < 500) {
+    // Level time limit check (first entry into level 500/1000) — reads the
+    // PRE-advance cursor: the edge must be the crossing itself
+    if (!this.level500Checked && currentState.level >= 500 && this.sections.previousLevel < 500) {
       this.level500Exceeded = currentState.timeFrames > limit500;
       this.level500Checked = true;
     }
 
-    if (!this.level1000Checked && currentState.level >= 1000 && this.previousLevel < 1000) {
+    if (!this.level1000Checked && currentState.level >= 1000 && this.sections.previousLevel < 1000) {
       this.level1000Exceeded = currentState.timeFrames > limit1000;
       this.level1000Checked = true;
     }
@@ -94,8 +82,7 @@ export class ShiraseModeProcessor {
     result.level500TimeLimitExceeded = this.level500Exceeded;
     result.level1000TimeLimitExceeded = this.level1000Exceeded;
 
-    this.previousLevel = currentState.level;
-    this.previousSection = currentSection;
+    this.sections.advance(currentState.level, currentSection);
 
     // Speed level = level (no Cool bonus in Shirase)
     result.speedLevel = currentState.level;
@@ -119,10 +106,8 @@ export class ShiraseModeProcessor {
 
     // 6. Shirase display formatting
     if (currentState.level >= 500 && currentState.level < 1000) {
-      const sectionIndex = Math.floor(currentState.level / 100) - 5; // 0-4 for sections 5-9
-      if (sectionIndex >= 0 && sectionIndex < SHIRASE_GARBAGE_QUOTA_MAX.length) {
-        result.maxGarbageQuota = SHIRASE_GARBAGE_QUOTA_MAX[sectionIndex];
-      }
+      // rising garbage: sections 5-9 map to quota slots 0-4
+      result.maxGarbageQuota = SHIRASE_GARBAGE_QUOTA_MAX[currentSection - 5];
     }
 
     result.combinedGrade = result.finalGrade + result.sectionGradePoints;
@@ -143,12 +128,7 @@ export class ShiraseModeProcessor {
   }
 
   reset(): void {
-    this.sectionCompletionTimes = new Array<number>(13).fill(0);
-    this.sectionTimes = new Array<number>(13).fill(0);
-    this.regrets = new Array<boolean>(13).fill(false);
-    this.previousLevel = 0;
-    this.previousSection = 0;
-
+    this.sections.reset();
     this.staffRollLatch = false;
     this.level500Checked = false;
     this.level1000Checked = false;

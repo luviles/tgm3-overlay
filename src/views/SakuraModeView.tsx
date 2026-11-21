@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { PlayerInfoCard } from "../components/PlayerInfoCard";
 import {
   BandRow,
-  DeadlineChip,
+  CheckpointChip,
   HeroNumerals,
   KpiRow,
   ModeHeader,
@@ -33,7 +33,7 @@ const LIMIT_BLINK_FRAMES = 10 * 60;
  * - a FAIL at/below 0s keeps blinking red until the next stage's fresh
  *   limit (>10s) arrives
  */
-function useSakuraLimitChip(state: ProcessedGameState): DeadlineChip {
+function useSakuraLimitChip(state: ProcessedGameState): CheckpointChip {
   const prevCleared = useRef(state.sakuraClearedStageLevel);
   const freeze = useRef<string | null>(null);
 

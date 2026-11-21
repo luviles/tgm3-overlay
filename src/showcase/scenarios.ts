@@ -32,7 +32,7 @@ import { toGradeName, toSakuraCurrentStageName } from "../core/converters";
 /** Fresh-state gap at the end of every loop (0.8s at 60fps). */
 export const RESET_FRAMES = 48;
 
-export type ShowcaseMode = "master" | "shirase" | "easy" | "sakura";
+type ShowcaseMode = "master" | "shirase" | "easy" | "sakura";
 
 export interface Scenario {
   id: string;

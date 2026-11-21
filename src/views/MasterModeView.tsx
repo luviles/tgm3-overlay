@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { PlayerInfoCard } from "../components/PlayerInfoCard";
 import {
   BandRow,
-  DeadlineChip,
+  CheckpointChip,
   HeroNumerals,
   KpiRow,
   MasterHistoryCard,
@@ -16,8 +16,8 @@ import {
   ViewBottom,
 } from "../components/cards";
 import { buildMasterSections } from "../core/sections";
-import { useRegretChip } from "../hooks/useRegretChip";
-import { useIncrementFlash } from "../hooks/useChangeFlash";
+import { deathRegretChip, useRegretChip } from "../hooks/useRegretChip";
+import { useIncrementFlash } from "../hooks/useIncrementFlash";
 import { signedTime } from "../core/calculators";
 import { getRegretThresholdFrames } from "../core/sectionConstants";
 import type { ProcessedGameState } from "../core/types";
@@ -70,7 +70,7 @@ function useMaster500Fail(state: ProcessedGameState): boolean {
  * On a 500-limit death the chip holds the DEATH SECTION's (400-500) frozen
  * verdict instead of starting a countdown for a section never played.
  */
-function useCoolChip(state: ProcessedGameState, failHold: boolean): DeadlineChip {
+function useCoolChip(state: ProcessedGameState, failHold: boolean): CheckpointChip {
   const frozenCool = useRef<{ section: number; remaining: number } | null>(null);
   // verdict of the last COMPLETED section, preserved across the section change
   const lastSectionCool = useRef<{ section: number; remaining: number } | null>(null);
@@ -130,16 +130,9 @@ function useCoolChip(state: ProcessedGameState, failHold: boolean): DeadlineChip
  * final verdict — the same window-remainder value (limit − lap) and tone
  * its 3s lap burst showed, like Shirase's level-limit freeze.
  */
-function frozenMasterRegretChip(state: ProcessedGameState, failHold: boolean): DeadlineChip | null {
+function masterDeathRegret(state: ProcessedGameState, failHold: boolean): CheckpointChip | null {
   if (!failHold) return null;
-  const lap = state.sectionTimes[4];
-  if (!(lap > 0)) return null;
-  const windowRemaining = getRegretThresholdFrames(4) - lap;
-  return {
-    label: "REGRET",
-    value: signedTime(windowRemaining),
-    tone: state.regrets[4] ? "red" : "cyan",
-  };
+  return deathRegretChip(state, 4, getRegretThresholdFrames);
 }
 
 export function MasterModeView({
@@ -154,17 +147,17 @@ export function MasterModeView({
   const regret = useRegretChip(state, {
     thresholdFor: getRegretThresholdFrames,
   });
-  const frozenRegret = frozenMasterRegretChip(state, fail500);
+  const deathRegret = masterDeathRegret(state, fail500);
 
   // a lap burst (the 3s window carries flash) outranks everything — the
   // final section's 999 verdict must flash even if the roll flag lands on
   // the same memory tick. After the window: the roll rests at N/A (matching
   // the COOL chip), then the 500-fail freeze.
-  const regretChip: DeadlineChip = regret.flash
+  const regretChip: CheckpointChip = regret.flash
     ? regret
     : state.showStaffRollTime
       ? { label: "REGRET", value: "N/A" }
-      : (frozenRegret ?? regret);
+      : (deathRegret ?? regret);
 
   // KPI INCREMENT flashes (grade-up sound condition: only rises flash;
   // game-end memory resets never do). SECTION never flashes.

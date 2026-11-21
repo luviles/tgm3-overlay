@@ -13,6 +13,10 @@ export enum SectionStatus {
   Normal = 1,
   Cool = 2,
   Regret = 3,
+  // Sakura aliases: the same two states mean stage cleared / forfeited
+  // there — the row-level CSS maps identical either way
+  Cleared = Cool,
+  Forfeited = Regret,
 }
 
 export interface SectionInfo {
@@ -44,6 +48,17 @@ function fillTimeColumns(s: SectionInfo, state: ProcessedGameState, i: number): 
   return true;
 }
 
+/** The most recent COMPLETED section — the highest recorded lap, −1 when
+ *  none. Section completion (not the section index) is the verdict
+ *  trigger everywhere: normal crossings advance the index, but Master's
+ *  final section (900-999) completes IN place at level 999. */
+export function lastCompletedSection(state: ProcessedGameState): number {
+  for (let i = state.sectionTimes.length - 1; i >= 0; i--) {
+    if (state.sectionTimes[i] > 0) return i;
+  }
+  return -1;
+}
+
 /** Master: 10 sections, 70% time column, regret > cool > normal (VM #12). */
 export function buildMasterSections(state: ProcessedGameState): SectionInfo[] {
   const sections = Array.from({ length: 10 }, (_, i) => emptySection(getSectionRange(i)));
@@ -51,10 +66,9 @@ export function buildMasterSections(state: ProcessedGameState): SectionInfo[] {
   for (let i = 0; i < sections.length; i++) {
     sections[i].seventyPercentTime = state.seventyPercentTimeDisplays[i] ?? "";
 
-    if ((state.sectionTimeDisplays[i] ?? "") !== "") {
-      sections[i].time = state.sectionTimeDisplays[i];
-      sections[i].cumulativeTime = state.cumulativeTimeDisplays[i] ?? "";
-
+    // completed rows carry their verdict; the in-progress row's time columns
+    // fill here too (live display), but its status/isCool are patched below
+    if (fillTimeColumns(sections[i], state, i) && state.sectionTimes[i] > 0) {
       if (i === 9) {
         // last section has no Cool
         sections[i].status = state.regrets[i] ? SectionStatus.Regret : SectionStatus.Normal;
@@ -78,9 +92,6 @@ export function buildMasterSections(state: ProcessedGameState): SectionInfo[] {
     current < state.sectionTimes.length &&
     state.sectionTimes[current] === 0
   ) {
-    sections[current].time = state.sectionTimeDisplays[current] ?? "";
-    sections[current].cumulativeTime = state.cumulativeTimeDisplays[current] ?? "";
-
     // 70% time: counting until x70, then frozen
     if (state.seventyPercentTimes[current] === 0) {
       sections[current].seventyPercentTime = state.seventyPercentTimeDisplays[current] ?? "";
@@ -130,9 +141,9 @@ export function buildSakuraStages(state: ProcessedGameState): SectionInfo[] {
     fillTimeColumns(sections[i], state, i);
 
     if (state.sakuraStageCleared[i]) {
-      sections[i].status = SectionStatus.Cool; // green
+      sections[i].status = SectionStatus.Cleared;
     } else if (state.sakuraStageForfeited[i]) {
-      sections[i].status = SectionStatus.Regret; // red
+      sections[i].status = SectionStatus.Forfeited;
     } else if (state.sakuraStageTimes[i] > 0) {
       sections[i].status = SectionStatus.Normal;
     } else {

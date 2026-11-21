@@ -3,10 +3,10 @@
  *
  * Skeleton (top to bottom):
  *   PlayerInfoCard / ModeHeader / [*MasterHistoryCard] / HeroNumerals / KpiRow
- *   BandRow (StatusBand + DeadlineStrip)
+ *   BandRow (StatusBand + ChipStrip)
  *   ViewBottom (SectionTimerControl | FieldCard)
  *
- * Modes parameterize the KPI cells, deadline chips and session card content.
+ * Modes parameterize the KPI cells, checkpoint chips and session card content.
  */
 
 import { memo, useRef } from "react";
@@ -28,8 +28,7 @@ export const StatCell = memo(function StatCell({
 }: {
   label: string;
   value: string;
-  /** "blink": gold base, continuous gold/white blink (mastery status) */
-  tone?: "gold" | "cyan" | "red" | "blink";
+  tone?: "gold" | "cyan" | "red";
   /** value increased recently: 3s burst blinking the tone colour with a
    *  tinted white (the unified blink) */
   flash?: boolean;
@@ -41,9 +40,7 @@ export const StatCell = memo(function StatCell({
         ? " cell__value--cyan"
         : tone === "red"
           ? " cell__value--red"
-          : tone === "blink"
-            ? " cell__value--gold blink blink--hi-gold"
-            : "";
+          : "";
   const flashClass = flash
     ? ` blink blink--3s ${tone === "red" ? "blink--hi-red" : tone === "cyan" ? "blink--hi-cyan" : "blink--hi-gold"}`
     : "";
@@ -332,11 +329,11 @@ function StatusBand({
 }
 
 // ---------------------------------------------------------------------------
-// DeadlineStrip — two compact chips; the countdown clock values carry the
+// ChipStrip — two compact chips; the countdown clock values carry the
 // information (no live bars, so chip geometry never shifts)
 // ---------------------------------------------------------------------------
 
-export interface DeadlineChip {
+export interface CheckpointChip {
   label: string;
   value: string;
   tone?: "cyan" | "red";
@@ -346,16 +343,16 @@ export interface DeadlineChip {
   blink?: boolean;
 }
 
-function DeadlineStrip({ left, right }: { left: DeadlineChip; right: DeadlineChip }) {
+function ChipStrip({ left, right }: { left: CheckpointChip; right: CheckpointChip }) {
   return (
     <div className="deadlines">
-      <DeadlineChipView chip={left} />
-      <DeadlineChipView chip={right} />
+      <CheckpointChipView chip={left} />
+      <CheckpointChipView chip={right} />
     </div>
   );
 }
 
-function DeadlineChipView({ chip }: { chip: DeadlineChip }) {
+function CheckpointChipView({ chip }: { chip: CheckpointChip }) {
   const tone = chip.tone === "cyan" ? " dl--cyan" : chip.tone === "red" ? " dl--red" : "";
 
   // unified blink: tinted white <-> flash colour, both phases declared by
@@ -649,7 +646,7 @@ const Pips = memo(function Pips({
   );
 });
 
-export function FieldCard({
+function FieldCard({
   state,
   hidePlayfield,
 }: {
@@ -749,7 +746,7 @@ export function FieldCard({
 // Shared view layout blocks (identical in all four modes)
 // ---------------------------------------------------------------------------
 
-/** Status band + deadline chips row. */
+/** Status band + checkpoint chips row. */
 export function BandRow({
   state,
   left,
@@ -757,15 +754,15 @@ export function BandRow({
   statusTitle,
 }: {
   state: ProcessedGameState;
-  left: DeadlineChip;
-  right: DeadlineChip;
+  left: CheckpointChip;
+  right: CheckpointChip;
   /** torikan freeze: locks the condition card to the state at death */
   statusTitle?: string;
 }) {
   return (
     <div className="band-row">
       <StatusBand state={state} titleOverride={statusTitle} />
-      <DeadlineStrip left={left} right={right} />
+      <ChipStrip left={left} right={right} />
     </div>
   );
 }

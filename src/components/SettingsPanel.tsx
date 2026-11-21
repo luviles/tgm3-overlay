@@ -31,10 +31,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function VolumeSlider({
+  name,
   volume,
   muted,
   onChange,
 }: {
+  /** mode name for accessible labeling ("Master" / "Shirase") */
+  name: string;
   volume: number;
   muted: boolean;
   onChange: (patch: { volume?: number; muted?: boolean }) => void;
@@ -46,6 +49,7 @@ function VolumeSlider({
         className={`set-mute${muted ? " set-mute--off" : ""}`}
         onClick={() => onChange({ muted: !muted })}
         title={muted ? "Unmute" : "Mute"}
+        aria-label={`${name} grade-up sound mute`}
       >
         {muted ? "🔇" : "🔊"}
       </button>
@@ -56,7 +60,7 @@ function VolumeSlider({
         value={volume}
         onChange={(e) => onChange({ volume: Number(e.target.value), muted: false })}
         className="set-slider"
-        aria-label="volume"
+        aria-label={`${name} grade-up volume`}
       />
       <span className="set-volume__value">{volume}%</span>
     </div>
@@ -162,6 +166,7 @@ export function SettingsPanel({
           </Row>
           <Row label="Grade Up Sound">
             <VolumeSlider
+              name="Master"
               volume={settings.masterVolume}
               muted={settings.masterMuted}
               onChange={(p) =>
@@ -177,6 +182,7 @@ export function SettingsPanel({
         <Section title="SHIRASE">
           <Row label="Grade Up Sound">
             <VolumeSlider
+              name="Shirase"
               volume={settings.shiraseVolume}
               muted={settings.shiraseMuted}
               onChange={(p) =>
