@@ -1,70 +1,69 @@
+<div align="center">
+
 # TGM3 Overlay
 
-Tetris: The Grand Master 3 메모리 비주얼라이저 — 오리지널(WinUI 3 / .NET 8)의
-경량 리라이트. [Tauri 2](https://tauri.app) + React + TypeScript + Rust.
+**Real-time memory visualization overlay for *Tetris: The Grand Master 3* — built for OBS**
 
-> 레포: `tgm3-overlay` · 오리지널(WinUI 3): `tgm3-visualizer`
+![Tauri](https://img.shields.io/badge/Tauri-2.0-orange?style=flat-square)
+![React](https://img.shields.io/badge/React-19-149ECA?style=flat-square)
+![Rust](https://img.shields.io/badge/backend-Rust-DEA584?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Windows_x64-0078D6?style=flat-square)
+![Size](https://img.shields.io/badge/release-~4.4_MB-brightgreen?style=flat-square)
 
-## 용도: OBS 사이드 패널 (480×1080 고정)
+</div>
 
-게임이 1280×960(4:3)으로 출력되고, OBS에서 1920×1080 캔버스에 게임을
-1440×1080으로 업스케일해 배치하면 남는 **우측 480×1080 영역을 이 프로그램이
-채운다.** 따라서 창은 480×1080 고정·리사이즈 불가이며, **어떤 상황에서도
-스크롤바가 나오지 않도록** 레이아웃되어 있다.
+## About
 
-## 원본 대비 개선
+TGM3 Overlay is a ground-up rewrite of my earlier WinUI 3 tool ([TGM3 Visualizer](https://github.com/luviles/tgm3-visualizer)) in **Tauri 2 + React 19 + Rust**, designed as a fixed **480×1080 side panel**: pair it with the game upscaled to 1440×1080 and you get a clean single-monitor 1920×1080 layout. The rewrite cut the binary from 109 MB to **~4.4 MB** with zero runtime dependencies (no .NET, no VC++ redistributables).
 
-| | 오리지널 (WinUI 3) | v2 (Tauri 2) |
-|---|---|---|
-| 배포 크기 | ~109 MB (self-contained) | 목표 5-10 MB |
-| 외부 의존 | VC++ 런타임 필요 (포맷 후 실행 불가 원인) | WebView2 (Win10/11 기본 탑재) |
-| 메모리 읽기 | 틱당 ~270회 ReadProcessMemory | 틱당 9회 (배치 읽기) |
-| 폴링→UI | 8ms 타이머 전체 리렌더 | 변경 시에만 이벤트 emit |
+> **Note:** This tool only works when playing on Player 1's side.
 
-## 구조
+## Features
 
-```
-src/                    프론트엔드 (React + TS)
-  core/                 ★ 오리지널 Core 라이브러리의 1:1 TypeScript 포팅
-    types.ts              GameState / ProcessedGameState / GameType
-    sections.ts           모드별 섹션 리스트 유도 (VM 로직 포팅)
-    sectionConstants.ts   Cool/Regret 시간 임계값
-    lockFrames.ts         모드별 최대 락 프레임
-    converters.ts         등급 → 표시명 변환기들
-    calculators.ts        감쇠/리그렛/등급히스토리/섹션시간 계산
-    processors/           모드별 상태 프로세서 (Master/Shirase/Easy/Sakura)
-    __tests__/            포팅 검증 유닛테스트 (C# 동작값 기준)
-  hooks/                  useGameMonitor (IPC 구독), useViewMode (뷰 전환 상태머신),
-                          useGradeUpSound (등급업 사운드 트리거)
-  views/                  모드별 뷰 4종 (원본 Views/*ModeView.xaml 대응)
-  components/             PlayerInfoCard, PlayfieldCanvas(원본 스프라이트), cards, SectionTimerControl
-  assets/                 BlockPixelData(추출 스프라이트), GradeUp.wav
-src-tauri/              백엔드 (Rust)
-  src/addresses.rs      ★ 메모리 주소 맵 (MemoryAddresses.cs 1:1, 배치 블록 정의)
-  src/memory.rs         game.exe 탐색/연결/8ms 폴링/배치 읽기/이벤트 emit
-scripts/                extract-block-pixels.mjs (원본 스프라이트 추출)
-```
+- **Non-intrusive** — read-only memory access at 8 ms intervals; never modifies or injects anything into the game process
+- **Auto-attach** — finds the game process on its own and reconnects when the game restarts
+- **Account Info** — nickname, decoration points, and personal bests for all modes in both Classic and World control rules
+- **Playfield** — real-time board with the game's authentic block sprites, lock-delay gauge, and World-rule move-reset counters
 
-★ = 오리지널(`D:\Users\Documents\Workspace\tgm3-visualizer`)과의 대응 관계
+### Easy
+Hanabi score with profile-best gauge, **NEW BEST** celebration, section and total clocks, and the credit-roll clock on the 200 clear.
 
-## 개발
+### Master
+The deep one. Grade history with adjusted average and promotion invitation, demotion points, live grade with internal-grade engine (points, decay timer), **COOL countdown that freezes at the 70 % judgment** with a cyan burst, REGRET lap flashes, full torikan handling (the 7-minute level-500 limit, exam exemptions, death freezes), the invisible-roll qualification indicators (9 COOLs / internal grade 27), and FADING ROLL! / INVISIBLE ROLL!! credit-roll tracking with the CLEAR!! verdict.
 
-```powershell
-npm install          # 최초 1회
-npm run test         # Core 포팅 유닛테스트 (vitest)
-npm run tauri dev    # 개발 실행
+### Sakura
+Stage LIMIT alarm (red blink under 10 s, frozen on a last-piece clear), jewel counter, cleared/forfeited stage list, and the **EX-stage unlock ladder** that lights the single tier you earned — 19+ (EX 1-3), all 20 (EX 1-5), or all 20 within 5:00 (EX 1-7) — with a gold flash the moment it unlocks.
+
+### Shirase
+20G time attack: torikan countdowns to level 500/1000 with pass celebrations and fail freezes, rising-garbage quota, monochrome-block (IBM) field past level 1000, **LAST SECTION** lap chip after the second checkpoint, and the **BIG BLOCK ROLL!!** credit roll with its CLEAR!! verdict.
+
+### Extras
+- **Unified emphasis system** — one blink/flash language (tinted white ↔ tone colour) across every verdict, burst, and alarm
+- **Settings** (persisted): per-mode grade-up sound volume/mute, roll-practice playfield visibility, Master section-time column choice
+- **Hidden debug mode** — a scripted scenario player that replays 28 design moments (torikan deaths, roll clears, qualification flips) at 0.1×–1× speed without playing the game; used to develop and verify every visual in this README
+  *How to open:* click the **⚙ gear → "SETTINGS" title five times** to reveal a DEBUG section, then **OPEN**. While playing: **←/→** switch scenario, **Space** pause, the speed button cycles 1×/0.5×/0.25×/0.1×, **R** restarts, **Esc** exits.
+- **116 automated tests** — the calculation core is ported 1:1 from the original C# implementation and locked by regression tests
+
+## Building from source
+
+Prerequisites: [Rust](https://rustup.rs/), Node.js 18+, and the VS Build Tools C++ workload.
+
+```bash
+npm install
+npm run tauri dev     # dev app
+npm run tauri build   # release exe + NSIS installer
 ```
 
-요구 사항: Node.js, Rust(stable-msvc), VS Build Tools(C++ 워크로드)
+## Disclaimer
 
-## 게임 연결
+This project is a **fan-made, educational tool** created for personal learning and non-commercial purposes only. It is published for study of real-time process introspection and UI design techniques.
 
-TGM3(`game.exe`)이 실행 중이면 500ms 간격으로 자동 탐색·연결한다.
-연결 후 8ms 간격으로 메모리를 폴링하며, 상태가 변했을 때만 프론트엔드로
-`game-state` 이벤트를 보낸다. 프로세스 종료 시 자동 재연결 대기.
+- **TGM3 Overlay is not affiliated with, endorsed by, sponsored by, or connected to** Arika Co., Ltd., the developer and publisher of *Tetris: The Grand Master 3*, nor with The Tetris Company, LLC.
+- ***Tetris*** **is a registered trademark of The Tetris Company, LLC.** All game names, terminology, and related imagery referenced by this project are the property of their respective owners. No game assets, executables, or proprietary data are distributed with this repository.
+- The tool only **reads** the memory of a locally running game process on the user's own machine. It does not modify the game, does not provide any gameplay advantage, and cannot be used on remote or online systems.
+- **Use of this software is entirely at your own risk.** The author assumes no liability for any damage, account action, or other consequences arising from its use.
+- If you are a rights holder and have concerns about this project, please contact me and it will be taken down promptly.
 
-## 빌드 / 배포
+## License
 
-```powershell
-npm run tauri build   # NSIS 설치더 + portable exe → src-tauri/target/release/bundle/
-```
+This project is licensed under the MIT License.
