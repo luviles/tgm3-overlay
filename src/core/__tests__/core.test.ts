@@ -447,7 +447,7 @@ describe("GameStateProcessorManager", () => {
     expect(out.sakuraStageCleared[1]).toBe(false); // the new stage is not "cleared"
   });
 
-  it("Sakura: level-20 clear first observed on an EX-stage tick still latches the tier", () => {
+  it("Sakura: EX-stage clear pushing cleared to 20 does NOT re-evaluate the frozen EX tier", () => {
     const mgr = new GameStateProcessorManager();
     const raw = createGameState();
     raw.gameType = GameType.Sakura;
@@ -455,16 +455,19 @@ describe("GameStateProcessorManager", () => {
     raw.timeFrames = 0;
     mgr.process(raw);
 
-    // the 20th clear and the EX1 stage transition land on the same tick:
-    // cleared=20 first observed with stage index already 20
+    // forfeit-one run: 19 cleared in the regular stages -> EX 1-3 tier
     raw.timeFrames = 20000;
+    raw.sakuraStageLevel = 19;
+    raw.sakuraClearedStageLevel = 19;
+    mgr.process(raw);
+
+    // EX1 entered and cleared -> memory cleared reads 20, but the tier was
+    // already decided: it must stay 3 (the ladder must not upgrade to 5/7)
     raw.sakuraStageLevel = 20;
     raw.sakuraClearedStageLevel = 20;
-    raw.sakuraStageLimitTime = 3600;
-    raw.sakuraStageElapsedTime = 60;
     const out = mgr.process(raw);
-    expect(out.clearedStageStatus).toBe(2); // rainbow latched
-    expect(out.exStageTier).toBeGreaterThanOrEqual(5); // 20-clear tier, not stuck at 3
+    expect(out.exStageTier).toBe(3);
+    expect(out.clearedStageStatus).toBe(1); // still green, not rainbow
   });
 
   it("Sakura: jewel count and stage tracking", () => {

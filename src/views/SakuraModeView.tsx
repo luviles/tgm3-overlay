@@ -37,6 +37,21 @@ function useSakuraLimitChip(state: ProcessedGameState): CheckpointChip {
   const prevCleared = useRef(state.sakuraClearedStageLevel);
   const freeze = useRef<string | null>(null);
 
+  // Extra stages have NO per-stage limit: the chip carries the EX play
+  // budget (entry remainder + 1-minute bonus, latched and counted down by
+  // the processor because the game's main clock becomes the EX progress
+  // time). Same ≤10s red blink; the clear/freeze logic below never applies
+  const inEx = state.sakuraStageLevel >= 20;
+  if (inEx) {
+    const remaining = state.sakuraExRemaining;
+    if (remaining < 0) return { label: "LIMIT", value: "--" };
+    if (remaining <= 0) return { label: "LIMIT", value: "00:00:00", blink: true };
+    if (remaining <= LIMIT_BLINK_FRAMES) {
+      return { label: "LIMIT", value: formatTime(remaining), blink: true };
+    }
+    return { label: "LIMIT", value: formatTime(remaining) };
+  }
+
   if (state.timeFrames === 0) {
     freeze.current = null;
   } else {

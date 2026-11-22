@@ -3,7 +3,7 @@
  * Ported from Tgm3Visualizer.Core/Processors/SakuraModeProcessor.cs
  */
 
-import { toSakuraCurrentStageName } from "../calculators";
+import { formatTime, toSakuraCurrentStageName } from "../calculators";
 import { SAKURA_MAX_LOCK_FRAME } from "../lockFrames";
 import { copyCommonFields, computeSectionTimeDisplays } from "./base";
 import { createProcessedGameState, type GameState, type ProcessedGameState } from "../types";
@@ -18,6 +18,11 @@ export class SakuraModeProcessor {
   private clearedReached20 = false;
   private latchedCumulativeFrames = 0;
 
+  // EX play budget: latched at the 20th clear (entry remainder + 1-minute
+  // bonus) before the main clock repurposes to EX progress
+  private exBudgetLatched = false;
+  private exEntryBudget = 0;
+
   process(currentState: GameState): ProcessedGameState {
     const result = createProcessedGameState();
 
@@ -26,6 +31,7 @@ export class SakuraModeProcessor {
 
     result.sakuraStageLimitTime = currentState.sakuraStageLimitTime;
     result.sakuraStageElapsedTime = currentState.sakuraStageElapsedTime;
+    result.sakuraStageLevel = currentState.sakuraStageLevel;
     result.sakuraClearedStageLevel = currentState.sakuraClearedStageLevel;
     result.sakuraStageLevelDisplay = toSakuraCurrentStageName(currentState.sakuraStageLevel);
 
@@ -86,24 +92,28 @@ export class SakuraModeProcessor {
     result.speedLevel = currentState.level;
     result.maxLockFrame = SAKURA_MAX_LOCK_FRAME;
 
-    // 5. EX stage tier determination (latch)
-    // The cleared counts only ever rise, so the latch is checked on every
-    // tick regardless of the current stage index — gating it on
-    // "still in the regular stages" could skip the latch entirely when the
-    // level-20 clear is first observed on a tick that already reads EX1.
-    if (!this.clearedReached19 && currentState.sakuraClearedStageLevel >= 19) {
-      this.clearedReached19 = true;
-    }
+    // 5. EX stage tier determination (latch) — REGULAR STAGES ONLY
+    // The tier is decided by the 1-20 performance and FROZEN once the extra
+    // stages are entered: an EX-stage clear that pushes the memory cleared
+    // count to 20 (forfeit-one run playing EX 1-3) must NOT upgrade the
+    // tier afterwards — the game has already decided how many EX stages
+    // there are. Late EX attach with no observed regular latches leaves
+    // the tier undetermined (ladder unlit) rather than guessing.
+    if (currentIdx < 20) {
+      if (!this.clearedReached19 && currentState.sakuraClearedStageLevel >= 19) {
+        this.clearedReached19 = true;
+      }
 
-    if (!this.clearedReached20 && currentState.sakuraClearedStageLevel >= 20) {
-      this.clearedReached20 = true;
-      this.latchedCumulativeFrames = 0;
-      for (let i = 0; i < 20; i++) {
-        this.latchedCumulativeFrames += this.stageTimes[i];
+      if (!this.clearedReached20 && currentState.sakuraClearedStageLevel >= 20) {
+        this.clearedReached20 = true;
+        this.latchedCumulativeFrames = 0;
+        for (let i = 0; i < 20; i++) {
+          this.latchedCumulativeFrames += this.stageTimes[i];
+        }
       }
     }
 
-    // Determine EX tier based on latch
+    // Determine EX tier based on the frozen latches
     if (this.clearedReached20) {
       result.exStageTier = this.latchedCumulativeFrames > 5 * 60 * 60 ? 5 : 7;
     } else if (this.clearedReached19) {
@@ -122,6 +132,35 @@ export class SakuraModeProcessor {
     result.sectionTimeDisplays = sectionTimeDisplays;
     result.cumulativeTimeDisplays = cumulativeTimeDisplays;
 
+    // 7. Hero TIME — OUR cumulative play time, unconditionally: the game's
+    // main clock is the total time budget during stages 1-20 (3:00 ±
+    // bonuses) and the EX progress time during the extra stages, so it is
+    // never a plain cumulative — we display the stage laps we track
+    // ourselves (completed laps + the current stage's live elapsed)
+    let cumulative = 0;
+    for (let i = 0; i <= currentIdx; i++) cumulative += this.stageTimes[i];
+    result.formattedTime = cumulative > 0 ? formatTime(cumulative) : "00:00:00";
+
+    // 8. EX budget: the constraint is (remaining budget at the 20th clear
+    // + the 1-minute EX bonus). The main clock repurposes to EX progress
+    // at entry, so the budget is latched on the clear tick — the last
+    // moment it still lives in the main clock — and counted down ourselves
+    result.sakuraExRemaining = -1;
+    if (!this.exBudgetLatched && currentState.sakuraClearedStageLevel >= 20 && currentIdx < 20) {
+      this.exBudgetLatched = true;
+      this.exEntryBudget = currentState.timeFrames + 60 * 60;
+    }
+    if (currentIdx >= 20) {
+      // missed the clear tick (late attach): fall back to latching at the
+      // first EX tick — the clock may have flipped already, so this
+      // underestimates (CE verification pending)
+      if (!this.exBudgetLatched) {
+        this.exBudgetLatched = true;
+        this.exEntryBudget = currentState.timeFrames + 60 * 60;
+      }
+      result.sakuraExRemaining = Math.max(0, this.exEntryBudget - currentState.timeFrames);
+    }
+
     return result;
   }
 
@@ -134,5 +173,7 @@ export class SakuraModeProcessor {
     this.clearedReached19 = false;
     this.clearedReached20 = false;
     this.latchedCumulativeFrames = 0;
+    this.exBudgetLatched = false;
+    this.exEntryBudget = 0;
   }
 }

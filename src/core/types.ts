@@ -229,6 +229,13 @@ export interface ProcessedGameState {
   // Sakura mode
   sakuraStageLimitTime: number;
   sakuraStageElapsedTime: number;
+  /** 0-based current stage (raw memory value) — ≥20 marks the EX stages,
+   *  where the game repurposes the clocks (see SakuraModeProcessor step 7) */
+  sakuraStageLevel: number;
+  /** Sakura EX: the remaining play budget (entry remainder + the 1-minute
+   *  bonus, counted down by our own latch — the game's main clock becomes
+   *  the EX progress time and no longer carries it). -1 outside EX */
+  sakuraExRemaining: number;
   sakuraStageLevelDisplay: string;
   sakuraClearedStageLevel: number;
   remainingJewelBlocks: number;
@@ -334,6 +341,8 @@ export function createProcessedGameState(): ProcessedGameState {
     hanabiScore: 0,
     sakuraStageLimitTime: 0,
     sakuraStageElapsedTime: 0,
+    sakuraStageLevel: 0,
+    sakuraExRemaining: -1,
     sakuraStageLevelDisplay: "1",
     sakuraClearedStageLevel: 0,
     remainingJewelBlocks: 0,

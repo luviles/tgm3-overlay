@@ -1287,11 +1287,15 @@ function sakuraFields(o: {
   stageTimes: number[];
   cleared: boolean[];
   elapsed: number;
+  /** EXTRA stages only: the game's main clock repurposes to the EX
+   *  progress time (0, counting up) — timeFrames models it, while the hero
+   *  TIME always shows our computed cumulative (see processor step 7) */
+  exClock?: number;
 }): Partial<ProcessedGameState> {
-  // the run clock IS the stage cumulative — completed laps + the current
-  // stage's elapsed (stages run back-to-back), so the hero TIME and the
-  // list's cumulative column can never disagree
-  const tf = o.stageTimes.slice(0, o.stageIdx).reduce((a, b) => a + b, 0) + o.elapsed;
+  // completed laps + the current stage's elapsed (stages run back-to-back)
+  const cumulative = o.stageTimes.slice(0, o.stageIdx).reduce((a, b) => a + b, 0) + o.elapsed;
+  const inEx = o.stageIdx >= 20 && o.exClock !== undefined;
+  const tf = inEx ? o.exClock! : cumulative;
 
   const { sectionTimeDisplays, cumulativeTimeDisplays } = computeSectionTimeDisplays(
     o.stageTimes,
@@ -1307,13 +1311,16 @@ function sakuraFields(o: {
   );
   return {
     timeFrames: tf,
-    formattedTime: formatTime(tf),
+    // hero TIME is OUR cumulative in every phase (the game's clock is the
+    // time budget in 1-20 and the EX progress in EX — never cumulative)
+    formattedTime: formatTime(cumulative),
     level: o.stageIdx + 1,
     section: 0,
     sectionTimeDisplays,
     cumulativeTimeDisplays,
     sakuraStageTimes: o.stageTimes,
     sakuraStageCleared: o.cleared,
+    sakuraStageLevel: o.stageIdx,
     sakuraStageLevelDisplay: toSakuraCurrentStageName(o.stageIdx),
   };
 }
@@ -1351,7 +1358,6 @@ const kLimitFail: Scenario = {
       exStageTier: 3,
       sakuraStageLimitTime: limit,
       sakuraStageElapsedTime: elapsed,
-      sakuraStageLimitTimeDisplay: formatTime(Math.max(1, limit)) || "00:00:00",
       remainingJewelBlocks: Math.max(0, 4 - Math.floor(f / 240)),
     };
   },
@@ -1393,7 +1399,6 @@ const kLimitClear: Scenario = {
       exStageTier: cleared ? 3 : 0,
       sakuraStageLimitTime: limit,
       sakuraStageElapsedTime: elapsed,
-      sakuraStageLimitTimeDisplay: formatTime(Math.max(1, limit)) || "00:00:00",
       remainingJewelBlocks: nextStage ? 10 : cleared ? 0 : Math.max(0, 3 - Math.floor(f / 120)),
     };
   },
@@ -1408,7 +1413,7 @@ const kLimitClear: Scenario = {
  */
 function exUnlockTimeline(f: number, laps19: number[]): Partial<ProcessedGameState> {
   const FCLR = 300; // stage 20 clears (elapsed 1100, no alarm)
-  const FEX = 360; // EX1 (idx 20) arrives with the fresh 60s clock
+  const FEX = 360; // EX1 (idx 20) arrives — the clocks flip their meaning
   const cleared20 = f >= FCLR;
   const inEx = f >= FEX;
   const stageIdx = inEx ? 20 : 19;
@@ -1421,19 +1426,25 @@ function exUnlockTimeline(f: number, laps19: number[]): Partial<ProcessedGameSta
   const cleared = [...new Array<boolean>(19).fill(true), cleared20];
   while (cleared.length < 27) cleared.push(false);
 
-  const limit = inEx ? 3600 : cleared20 ? 2500 : 2800 - f;
   const elapsed = inEx ? f - FEX : cleared20 ? 1100 : 800 + f;
   const total = laps19.reduce((a, b) => a + b, 0) + 1100; // latched at the clear
+  // EX: the main clock repurposes to the EX progress (counting up); the
+  // play budget is the processor's latch — demo: 20s at entry, so the LIMIT
+  // chip counts down into its ≤10s red blink before the loop ends
+  const exClock = inEx ? f - FEX : 0;
+  const exBudget = inEx ? Math.max(0, 1200 - (f - FEX)) : -1;
+  const stageLimit = inEx ? elapsed : cleared20 ? 2500 : 2800 - f;
 
   return {
     ...lively(Math.min(f, FCLR)),
     playfield: K_PF,
-    ...sakuraFields({ stageIdx, stageTimes, cleared, elapsed }),
+    ...sakuraFields({ stageIdx, stageTimes, cleared, elapsed, exClock }),
     sakuraClearedStageLevel: cleared20 ? 20 : 19,
     clearedStageStatus: cleared20 ? 2 : 1,
     // the processor's latch: > 5:00 -> EX 1-5, within -> EX 1-7
     exStageTier: !cleared20 ? 3 : total > 5 * 60 * 60 ? 5 : 7,
-    sakuraStageLimitTime: limit,
+    sakuraExRemaining: exBudget,
+    sakuraStageLimitTime: stageLimit,
     sakuraStageElapsedTime: elapsed,
     remainingJewelBlocks: inEx ? 10 : cleared20 ? 0 : Math.max(1, 3 - Math.floor(f / 120)),
   };
@@ -1444,7 +1455,7 @@ const kEx5Unlock: Scenario = {
   id: "sakura-ex5-unlock",
   mode: "sakura",
   label: "ALL 20 OVER 5:00",
-  note: "Stage 20 clears at 5:14: EX 1-5 flashes gold 3s then rests — only that row lit (exclusive). EX1 fresh 60s.",
+  note: "Stage 20 clears at 5:14: EX 1-5 flashes gold 3s — only that row lit. EX1: clocks flip (hero=cumulative, LIMIT=remaining, blinks ≤10s).",
   frames: 1248,
   at: (f) => exUnlockTimeline(f, K_LAPS_SLOW),
 };
