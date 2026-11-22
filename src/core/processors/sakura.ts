@@ -14,7 +14,6 @@ export class SakuraModeProcessor {
   private stageForfeited = new Array<boolean>(27).fill(false);
   private previousStageLevel = -1;
   private previousClearedStageLevel = 0;
-  private previousTimeFrames = 0;
   private clearedReached19 = false;
   private clearedReached20 = false;
   private latchedCumulativeFrames = 0;
@@ -36,26 +35,18 @@ export class SakuraModeProcessor {
     result.sakuraClearedStageLevel = currentState.sakuraClearedStageLevel;
     result.sakuraStageLevelDisplay = toSakuraCurrentStageName(currentState.sakuraStageLevel);
 
-    // 2. Reset detection — NOT timeFrames === 0. In Sakura the main clock
-    // is the total time BUDGET (counts down), and it legitimately reaches
-    // zero during the buzzer-beater: the last piece must fully lock, and a
-    // clear judgment or a jewel removal can still EXTEND the time — the
-    // game only ends when no extension comes. Until then the run is alive
-    // and every tracker keeps recording. A NEW game is detected by the
-    // budget jumping back up to its fresh 3-minute start (time extensions
-    // are far smaller), or by the stage index going backwards (EX runs end
-    // high and drop to 0 at the next game).
-    if (
-      currentState.timeFrames > this.previousTimeFrames + 1800 ||
-      (this.previousStageLevel >= 0 && currentState.sakuraStageLevel < this.previousStageLevel)
-    ) {
+    // 2. Reset detection — the explicit game-lifecycle flag. The main
+    // clock in Sakura is the total time budget: it counts down through
+    // zero during the buzzer-beater (the last piece must lock; a clear or
+    // a jewel removal can still extend the time) and it repurposes at the
+    // extra stages (the +1-minute bonus reads as an upward jump) — NEITHER
+    // is a reset. The run is over exactly when the process leaves the
+    // "playing" state, so every non-playing tick (results, menu, demo)
+    // keeps the tracker clean for the next session.
+    if (currentState.gameProcessStatus !== 3) {
       this.reset();
-      // remember the new baseline so the first live tick is not itself a
-      // rise (otherwise every tick of a fresh game would re-reset)
-      this.previousTimeFrames = currentState.timeFrames;
       return result;
     }
-    this.previousTimeFrames = currentState.timeFrames;
 
     // 3. Stage tracking
     const currentIdx = currentState.sakuraStageLevel;
@@ -186,7 +177,6 @@ export class SakuraModeProcessor {
     this.stageForfeited = new Array<boolean>(27).fill(false);
     this.previousStageLevel = -1;
     this.previousClearedStageLevel = 0;
-    this.previousTimeFrames = 0;
     this.clearedReached19 = false;
     this.clearedReached20 = false;
     this.latchedCumulativeFrames = 0;

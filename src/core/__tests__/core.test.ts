@@ -423,10 +423,10 @@ describe("GameStateProcessorManager", () => {
     const mgr = new GameStateProcessorManager();
     const raw = createGameState();
     raw.gameType = GameType.Sakura;
+    raw.gameProcessStatus = 3;
 
-    // reset tick, then play stage 0 (idx 0)
-    raw.timeFrames = 0;
-    mgr.process(raw);
+    // play stage 0 (idx 0)
+    raw.timeFrames = 100;
     raw.timeFrames = 100;
     raw.sakuraStageLevel = 0;
     raw.sakuraClearedStageLevel = 0;
@@ -451,13 +451,9 @@ describe("GameStateProcessorManager", () => {
     const mgr = new GameStateProcessorManager();
     const raw = createGameState();
     raw.gameType = GameType.Sakura;
+    raw.gameProcessStatus = 3;
 
-    // fresh processor tick, budget not yet started
-    raw.timeFrames = 0;
-    mgr.process(raw);
-
-    // game start: budget jumps to its full value — one reset latch, then
-    // tracking must proceed on the following ticks (no reset loop)
+    // game start: budget at its fresh 3-minute value
     raw.timeFrames = 10800;
     mgr.process(raw);
     raw.sakuraStageLevel = 0;
@@ -476,8 +472,17 @@ describe("GameStateProcessorManager", () => {
     out = mgr.process(raw);
     expect(out.sakuraStageTimes[0]).toBe(1800);
 
-    // a NEW game (budget back to the fresh 3:00) is the real reset
-    raw.timeFrames = 10800;
+    // entering the extra stages injects the +1-minute bonus — an upward
+    // jump that must NOT read as a new game either
+    raw.timeFrames = 600 + 60 * 60;
+    raw.sakuraStageLevel = 20;
+    out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(1800);
+
+    // the real reset: the process leaves the "playing" state (results)
+    raw.gameProcessStatus = 0;
+    mgr.process(raw);
+    raw.gameProcessStatus = 3;
     out = mgr.process(raw);
     expect(out.sakuraStageTimes[0]).toBe(0);
   });
@@ -486,11 +491,8 @@ describe("GameStateProcessorManager", () => {
     const mgr = new GameStateProcessorManager();
     const raw = createGameState();
     raw.gameType = GameType.Sakura;
-
-    // mid-run attach: one baseline latch tick (the budget jump reads as a
-    // new game), then live tracking proceeds
+    raw.gameProcessStatus = 3;
     raw.timeFrames = 20000;
-    mgr.process(raw);
 
     // forfeit-one run: 19 cleared in the regular stages -> EX 1-3 tier
     raw.sakuraStageLevel = 19;
@@ -510,10 +512,8 @@ describe("GameStateProcessorManager", () => {
     const mgr = new GameStateProcessorManager();
     const raw = createGameState();
     raw.gameType = GameType.Sakura;
-    raw.timeFrames = 0;
-    mgr.process(raw);
-
-    raw.timeFrames = 500; // leave the reset path
+    raw.gameProcessStatus = 3;
+    raw.timeFrames = 500;
     raw.sakuraStageLevel = 3;
     raw.sakuraStageElapsedTime = 1234;
     raw.playfield[0][0] = 0x12;
