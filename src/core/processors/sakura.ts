@@ -35,15 +35,23 @@ export class SakuraModeProcessor {
     result.sakuraClearedStageLevel = currentState.sakuraClearedStageLevel;
     result.sakuraStageLevelDisplay = toSakuraCurrentStageName(currentState.sakuraStageLevel);
 
-    // 2. Reset detection — the explicit game-lifecycle flag. The main
-    // clock in Sakura is the total time budget: it counts down through
-    // zero during the buzzer-beater (the last piece must lock; a clear or
-    // a jewel removal can still extend the time) and it repurposes at the
-    // extra stages (the +1-minute bonus reads as an upward jump) — NEITHER
-    // is a reset. The run is over exactly when the process leaves the
-    // "playing" state, so every non-playing tick (results, menu, demo)
-    // keeps the tracker clean for the next session.
-    if (currentState.gameProcessStatus !== 3) {
+    // 2. Reset detection — three signals, all invariant-based (no clock
+    // heuristics: the budget legitimately hits zero in the buzzer-beater
+    // and jumps upward with the EX bonus):
+    // a) the process leaves the "playing" state (full quit / attract mode)
+    // b) the stage index goes backwards
+    // c) the cleared count goes backwards
+    // b+c catch CONTINUE — the process stays "playing" through the
+    // results screen and the new run, but a run only ever moves FORWARD:
+    // the fresh run's stage 0 / cleared 0 read as regressions. A stage-1
+    // death continued into another stage-1 run regresses nothing, but
+    // self-heals: the live slot is overwritten by the new run's elapsed
+    // and no latch (EX tier/budget) can exist that early.
+    if (
+      currentState.gameProcessStatus !== 3 ||
+      currentState.sakuraStageLevel < this.previousStageLevel ||
+      currentState.sakuraClearedStageLevel < this.previousClearedStageLevel
+    ) {
       this.reset();
       return result;
     }

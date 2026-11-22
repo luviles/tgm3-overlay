@@ -447,6 +447,57 @@ describe("GameStateProcessorManager", () => {
     expect(out.sakuraStageCleared[1]).toBe(false); // the new stage is not "cleared"
   });
 
+  it("Sakura: CONTINUE (new game while still playing) resets via stage/cleared regression", () => {
+    const mgr = new GameStateProcessorManager();
+    const raw = createGameState();
+    raw.gameType = GameType.Sakura;
+    raw.gameProcessStatus = 3;
+    raw.timeFrames = 10800;
+
+    // run reaches stage 3 with 2 stages cleared (the cleared-count rise on
+    // this attach tick marks the current stage)
+    raw.sakuraStageLevel = 3;
+    raw.sakuraClearedStageLevel = 2;
+    raw.sakuraStageElapsedTime = 2400;
+    let out = mgr.process(raw);
+    expect(out.sakuraStageTimes[3]).toBe(2400);
+    expect(out.sakuraStageCleared[3]).toBe(true);
+
+    // game over -> CONTINUE: the process STAYS playing (status 3), the new
+    // run starts at stage 0 with 0 cleared — both regress -> full reset
+    // (the reset tick itself returns blank; tracking resumes the next tick)
+    raw.sakuraStageLevel = 0;
+    raw.sakuraClearedStageLevel = 0;
+    raw.sakuraStageElapsedTime = 120;
+    out = mgr.process(raw);
+    expect(out.sakuraStageTimes[3]).toBe(0);
+    expect(out.sakuraStageCleared[3]).toBe(false);
+
+    raw.sakuraStageElapsedTime = 240;
+    out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(240); // the new run is tracking
+  });
+
+  it("Sakura: stage-1 death continued into another stage-1 run self-heals", () => {
+    const mgr = new GameStateProcessorManager();
+    const raw = createGameState();
+    raw.gameType = GameType.Sakura;
+    raw.gameProcessStatus = 3;
+    raw.timeFrames = 10800;
+
+    // dies on stage 1 (idx 0): elapsed 3500 recorded, nothing cleared
+    raw.sakuraStageLevel = 0;
+    raw.sakuraStageElapsedTime = 3500;
+    let out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(3500);
+
+    // CONTINUE: stage 0 again, cleared 0 again — no regression fires, but
+    // the live slot is overwritten by the new run's elapsed every tick
+    raw.sakuraStageElapsedTime = 400;
+    out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(400);
+  });
+
   it("Sakura: budget hitting zero is the buzzer-beater, not a reset", () => {
     const mgr = new GameStateProcessorManager();
     const raw = createGameState();
