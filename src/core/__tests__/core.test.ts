@@ -447,16 +447,52 @@ describe("GameStateProcessorManager", () => {
     expect(out.sakuraStageCleared[1]).toBe(false); // the new stage is not "cleared"
   });
 
+  it("Sakura: budget hitting zero is the buzzer-beater, not a reset", () => {
+    const mgr = new GameStateProcessorManager();
+    const raw = createGameState();
+    raw.gameType = GameType.Sakura;
+
+    // fresh processor tick, budget not yet started
+    raw.timeFrames = 0;
+    mgr.process(raw);
+
+    // game start: budget jumps to its full value — one reset latch, then
+    // tracking must proceed on the following ticks (no reset loop)
+    raw.timeFrames = 10800;
+    mgr.process(raw);
+    raw.sakuraStageLevel = 0;
+    raw.sakuraStageElapsedTime = 1800;
+    let out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(1800);
+
+    // the budget reaches zero: buzzer-beater — the piece still has to lock,
+    // a clear or jewel removal may extend the time. NOT a game reset.
+    raw.timeFrames = 0;
+    out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(1800); // trackers preserved
+
+    // a jewel removal extends the time: the run is alive
+    raw.timeFrames = 600;
+    out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(1800);
+
+    // a NEW game (budget back to the fresh 3:00) is the real reset
+    raw.timeFrames = 10800;
+    out = mgr.process(raw);
+    expect(out.sakuraStageTimes[0]).toBe(0);
+  });
+
   it("Sakura: EX-stage clear pushing cleared to 20 does NOT re-evaluate the frozen EX tier", () => {
     const mgr = new GameStateProcessorManager();
     const raw = createGameState();
     raw.gameType = GameType.Sakura;
 
-    raw.timeFrames = 0;
+    // mid-run attach: one baseline latch tick (the budget jump reads as a
+    // new game), then live tracking proceeds
+    raw.timeFrames = 20000;
     mgr.process(raw);
 
     // forfeit-one run: 19 cleared in the regular stages -> EX 1-3 tier
-    raw.timeFrames = 20000;
     raw.sakuraStageLevel = 19;
     raw.sakuraClearedStageLevel = 19;
     mgr.process(raw);
