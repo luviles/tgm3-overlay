@@ -152,25 +152,28 @@ export function MasterHistoryCard({ state }: { state: ProcessedGameState }) {
     state.controlMode === "WORLD"
       ? state.worldMasterGradeHistory
       : state.classicMasterGradeHistory;
-  const certified =
-    state.controlMode === "WORLD" ? state.worldMasterCurrentGrade : state.classicMasterCurrentGrade;
 
   const slots = careerSlots(raw, state.gradeHistoryEntries);
   const recordCount = slots.filter((s) => s.filled).length;
 
-  // Promotion eligibility (the game's 50/50 roll needs all of this):
-  // 7/7 records AND the adjusted average above the currently certified grade.
-  // Sparse histories (new card) never light up. Single source: the
-  // processor's average (null with fewer than 4 records).
-  const averageValue = state.averageGradeValue;
-  const promoEligible = recordCount >= 7 && averageValue !== null && averageValue > certified;
+  // AVERAGE GRADE emphasis — the PROMOTION EXAM transition, exactly once:
+  // the moment the run's mode flag flips NORMAL PLAY -> PROMOTIONAL EXAM,
+  // the value flashes gold for 3s, then rests in static gold for the rest
+  // of the run. Everything else stays plain white. Refs init from the
+  // current state (mount-safe: attaching mid-exam shows no flash).
+  const prevExam = useRef(state.isPromotionExam);
+  const promoFlashUntil = useRef(0);
+  const promoLatched = useRef(false);
 
-  // The gold treatment is an INVITATION: it stops once a run is underway
-  // that did not become a promotional exam (coin toss lost / demotional
-  // exam), and during the staff roll (the history may already include the
-  // fresh result).
-  const inRunWithoutPromo = state.timeFrames > 0 && !state.isPromotionExam;
-  const promoInvite = promoEligible && !inRunWithoutPromo && !state.showStaffRollTime;
+  if (state.timeFrames === 0) {
+    promoLatched.current = false; // new run: re-arm the one-shot
+  } else if (state.isPromotionExam && !prevExam.current) {
+    promoFlashUntil.current = Date.now() + 3000;
+    promoLatched.current = true;
+  }
+  prevExam.current = state.isPromotionExam;
+
+  const promoFlashing = promoLatched.current && Date.now() < promoFlashUntil.current;
 
   return (
     <div className="career">
@@ -204,7 +207,11 @@ export function MasterHistoryCard({ state }: { state: ProcessedGameState }) {
       <div className="career__meta career__meta--first">
         <span className="career__k">AVERAGE GRADE</span>
         <span className="career__right">
-          <span className={`career__v career__v--avg${promoInvite ? " career__v--promo" : ""}`}>
+          <span
+            className={`career__v career__v--avg${
+              promoLatched.current ? " career__v--promo" : ""
+            }${promoFlashing ? " blink blink--3s blink--hi-gold" : ""}`}
+          >
             {recordCount >= 4 ? state.averageGradeDisplay : "--"}
           </span>
         </span>

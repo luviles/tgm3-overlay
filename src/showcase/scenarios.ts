@@ -735,12 +735,14 @@ const mExamExempt: Scenario = {
   id: "master-exam-exempt",
   mode: "master",
   label: "PROMO EXAM 7:00+",
-  note: "Same 7:01 crossing as LV500 TORIKAN — but a promotional exam: no death, gold band holds, run continues.",
+  note: "2s in: NORMAL→PROMOTIONAL EXAM flip — AVERAGE GRADE flashes gold 3s then latches. Same 7:01 crossing as the torikan, but exempt: no death.",
   frames: 1848,
   at: (f) => {
     const T0 = 19400; // sections 0-3 (slow, all regretted): [5000, 4900, 4800, 4700]
     const E0 = 5200; // picked up 6:50 into the run, level 486
+    const FEXAM = 120; // the coin toss lands: NORMAL PLAY -> PROMOTIONAL EXAM
     const FX = 660; // level 500 at 7:01.00 (over the 7:00 limit) -> EXEMPT
+    const exam = f >= FEXAM;
     const crossed = f >= FX;
     const tf = T0 + E0 + f;
     const level = crossed
@@ -761,8 +763,8 @@ const mExamExempt: Scenario = {
         coolDeadline: crossed ? 25260 + 2520 : 22100,
         regretDeadline: crossed ? 25260 + 3600 : 23000,
       }),
-      isPromotionExam: true,
-      statusCardTitle: "PROMOTIONAL\nEXAM",
+      isPromotionExam: exam,
+      statusCardTitle: exam ? "PROMOTIONAL\nEXAM" : "NORMAL\nPLAY",
       combinedGrade: 13,
       gradeDisplay: toGradeName(13),
       internalGradeText: "17 (Grade S1)",
