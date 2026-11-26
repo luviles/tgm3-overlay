@@ -10,6 +10,8 @@
 ![Platform](https://img.shields.io/badge/platform-Windows_x64-0078D6?style=flat-square)
 ![Size](https://img.shields.io/badge/release-~4.4_MB-brightgreen?style=flat-square)
 
+https://github.com/user-attachments/assets/63dfbe1c-d987-4be2-ab3b-c9dee78e83e6
+
 </div>
 
 ## About
